@@ -19,13 +19,14 @@ C2 = 2.0
 
 
 class Swarm:
-    def __init__(self, num_particles):
+    def __init__(self, num_particles, traffic_stream=None):
         self.global_best = None
         self.global_best_fit = float('inf')
         self.particles = []
+        self.traffic_stream = traffic_stream
 
         for _ in range(num_particles):
-            particle = Particle()
+            particle = Particle(traffic_stream=traffic_stream)
             self.particles.append(particle)
 
             if particle.fitness < self.global_best_fit:
@@ -36,7 +37,7 @@ class Swarm:
         w = 0.9 
         for _ in range(iterations):
             for particle in self.particles:
-                particle.update(self.global_best, w) 
+                particle.update(self.global_best, w, self.traffic_stream) 
                 
                 if particle.fitness < self.global_best_fit:
                     self.global_best_fit = particle.fitness
@@ -45,7 +46,7 @@ class Swarm:
             w = max(0.4, w - 0.02)
 
 class Particle:
-    def __init__(self):
+    def __init__(self, traffic_stream=None):
         ns = random.uniform(10, 60)
         ew = random.uniform(10, 60)
         vns = random.uniform(-10, 10)
@@ -53,12 +54,13 @@ class Particle:
 
         self.time = np.array([ns, ew])
         self.v = np.array([vns, vew])
+        self.traffic_stream = traffic_stream
 
-        self.fitness = self.evaluate(self.time)
+        self.fitness = self.evaluate(self.time, self.traffic_stream)
         self.pbest = self.time.copy()
         self.pbest_fit = self.fitness
 
-    def update(self, global_best, w):
+    def update(self, global_best, w, traffic_stream=None):
         r1 = np.random.random(len(self.time))
         r2 = np.random.random(len(self.time))
 
@@ -78,15 +80,15 @@ class Particle:
 
         self.time = np.clip(self.time, a_min=10, a_max=120)
 
-        self.fitness = self.evaluate(self.time)
+        self.fitness = self.evaluate(self.time, traffic_stream)
         if self.fitness < self.pbest_fit:
             self.pbest = self.time.copy()
             self.pbest_fit = self.fitness
 
-    def evaluate(self, time):
-        return self.simulate(time)
+    def evaluate(self, time, traffic_stream=None):
+        return self.simulate(time, traffic_stream)
     
-    def simulate(self, time):
+    def simulate(self, time, traffic_stream=None):
         # Time array: [NS_green_duration, EW_green_duration]
         green_NS_duration = time[0]
         green_EW_duration = time[1]
@@ -100,9 +102,10 @@ class Particle:
         queue_EW = 0
         total_wait = 0
 
-        for current_time in range(100): # 100 seconds of simulation
-            queue_NS += random.randint(0, 5)
-            queue_EW += random.randint(0, 1)
+        for current_time in range(len(traffic_stream)):
+            arrivals_ns, arrivals_ew = traffic_stream[current_time]
+            queue_NS += arrivals_ns
+            queue_EW += arrivals_ew
 
             # Determine who has the green light
             time_in_cycle = current_time % total_cycle
@@ -110,11 +113,11 @@ class Particle:
             if time_in_cycle < green_NS_duration:
                 # NS is Green, EW is Red
                 if queue_NS > 0:
-                    queue_NS -= 1
+                    queue_NS -= 2
             else:
                 # EW is Green, NS is Red
                 if queue_EW > 0:
-                    queue_EW -= 1
+                    queue_EW -= 2
 
             # Add all waiting cars to the penalty score
             total_wait += (queue_NS + queue_EW)
@@ -129,16 +132,33 @@ if __name__ == "__main__":
         random.seed(seed_val)
         np.random.seed(seed_val)
         
-        # Recorded results comparing baseline signal settings with optimized ones.
-        dummy = Particle() 
-        baseline_timings = [60.0, 60.0]
-        baseline_wait = dummy.simulate(baseline_timings)
-        print(f"--- RUN {i+1} (Seed {seed_val}) ---")
-        print(f"Baseline Wait Time (60s/60s fixed): {baseline_wait} cars waiting")
+        # Generate traffic scenario once for this seed
+        # Simulate 600 seconds (10 minutes)
+        sim_time = 600
+        traffic_stream = []
+        for t in range(sim_time):
+            # NS gets 0, 1, or 2 cars (Average: 1 car per sec)
+            arrivals_ns = random.randint(0, 2)
 
-        # Run PSO optimization
-        swarm = Swarm(num_particles=30)
+            # EW gets 0 or 1 car (Average: 0.5 cars per sec)
+            arrivals_ew = random.randint(0, 1)
+            traffic_stream.append((arrivals_ns, arrivals_ew))
+        
+        print(f"\n--- RUN {i+1} (Seed {seed_val}) ---")
+        
+        # BASELINE: Fixed 60/60 timing on the same traffic stream
+        baseline_particle = Particle(traffic_stream=traffic_stream)
+        baseline_timings = np.array([60.0, 60.0])
+        baseline_wait = baseline_particle.simulate(baseline_timings, traffic_stream)
+        print(f"Baseline Wait Time (60s/60s fixed): {baseline_wait:.2f} cars waiting")
+        
+        # PSO OPTIMIZATION: Use same traffic stream
+        swarm = Swarm(num_particles=30, traffic_stream=traffic_stream)
         swarm.optimize(iterations=50)
         
+        optimized_wait = swarm.global_best_fit
+        improvement = ((baseline_wait - optimized_wait) / baseline_wait) * 100 if baseline_wait > 0 else 0
+        
         print(f"Optimized Timings: NS={swarm.global_best[0]:.2f}s, EW={swarm.global_best[1]:.2f}s")
-        print(f"Optimized Wait Time: {swarm.global_best_fit} cars waiting\n")
+        print(f"Optimized Wait Time: {optimized_wait:.2f} cars waiting")
+        print(f"Improvement: {improvement:.2f}%")
