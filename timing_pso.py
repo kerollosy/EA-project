@@ -194,17 +194,22 @@ if __name__ == "__main__":
     print(f"Results saved to {csv_filename}")
     
 
+    baseline_waits = [r['baseline_wait'] for r in results]
+    optimized_waits = [r['optimized_wait'] for r in results]
+    improvements = [r['improvement_percent'] for r in results]
+
     # Save seeds and summary statistics to JSON
     json_filename = 'pso_seeds_and_metadata.json'
     metadata = {
         'num_runs': len(seeds),
         'seeds': seeds,
         'summary_statistics': {
-            'mean_baseline_wait': float(np.mean([r['baseline_wait'] for r in results])),
-            'mean_optimized_wait': float(np.mean([r['optimized_wait'] for r in results])),
-            'mean_improvement_percent': float(np.mean([r['improvement_percent'] for r in results])),
-            'min_improvement_percent': float(np.min([r['improvement_percent'] for r in results])),
-            'max_improvement_percent': float(np.max([r['improvement_percent'] for r in results]))
+            'mean_baseline_wait': float(np.mean(baseline_waits)),
+            'mean_optimized_wait': float(np.mean(optimized_waits)),
+            'mean_improvement_percent': float(np.mean(improvements)),
+            'std_improvement_percent': float(np.std(improvements)),
+            'min_improvement_percent': float(np.min(improvements)),
+            'max_improvement_percent': float(np.max(improvements))
         }
     }
     with open(json_filename, 'w') as jsonfile:
@@ -217,7 +222,8 @@ if __name__ == "__main__":
     print("Statistical Summary")
     print("=" * 80)
     
-    print(f"Baseline (Mean): {np.mean([r['baseline_wait'] for r in results]):.2f}")
-    print(f"Optimized (Mean): {np.mean([r['optimized_wait'] for r in results]):.2f}")
-    print(f"Improvement (Mean): {np.mean([r['improvement_percent'] for r in results]):.2f}%")
-    print(f"Improvement Range: [{np.min([r['improvement_percent'] for r in results]):.2f}%, {np.max([r['improvement_percent'] for r in results]):.2f}%]")
+    print(f"Baseline (Mean ± Std): {np.mean(baseline_waits):.2f} ± {np.std(baseline_waits):.2f}")
+    print(f"Optimized (Mean ± Std): {np.mean(optimized_waits):.2f} ± {np.std(optimized_waits):.2f}")
+    print(f"Improvement (Mean ± Std): {np.mean(improvements):.2f}% ± {np.std(improvements):.2f}%")
+    print(f"Improvement Range: [{np.min(improvements):.2f}%, {np.max(improvements):.2f}%]")
+    
