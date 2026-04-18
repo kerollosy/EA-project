@@ -216,16 +216,8 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("Statistical Summary")
     print("=" * 80)
-    baseline_waits = []
-    optimized_waits = []
-    improvements = []
-
-    for r in results:
-        baseline_waits.append(r['baseline_wait'])
-        optimized_waits.append(r['optimized_wait'])
-        improvements.append(r['improvement_percent'])
     
-    print(f"Baseline (Mean): {np.mean(baseline_waits):.2f}")
-    print(f"Optimized (Mean): {np.mean(optimized_waits):.2f}")
-    print(f"Improvement (Mean): {np.mean(improvements):.2f}%")
-    print(f"Improvement Range: [{np.min(improvements):.2f}%, {np.max(improvements):.2f}%]")
+    print(f"Baseline (Mean): {np.mean([r['baseline_wait'] for r in results]):.2f}")
+    print(f"Optimized (Mean): {np.mean([r['optimized_wait'] for r in results]):.2f}")
+    print(f"Improvement (Mean): {np.mean([r['improvement_percent'] for r in results]):.2f}%")
+    print(f"Improvement Range: [{np.min([r['improvement_percent'] for r in results]):.2f}%, {np.max([r['improvement_percent'] for r in results]):.2f}%]")
