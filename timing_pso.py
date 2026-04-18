@@ -66,6 +66,16 @@ class Particle:
         self.v = np.clip(self.v, a_min=-10, a_max=10)
 
         self.time += self.v
+
+        mutation_rate = 0.10  # 10% chance to mutate
+        if random.random() < mutation_rate:
+            # Pick one signal (NS or EW) to mutate at random
+            gene_index = random.randint(0, len(self.time) - 1)
+            
+            # Add or subtract a random amount of time (between -15 and 15 seconds)
+            mutation_shift = random.uniform(-15, 15)
+            self.time[gene_index] += mutation_shift
+
         self.time = np.clip(self.time, a_min=10, a_max=120)
 
         self.fitness = self.evaluate(self.time)
