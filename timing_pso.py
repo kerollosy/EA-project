@@ -130,6 +130,10 @@ if __name__ == "__main__":
     seeds = [random.randint(1, 10000) for _ in range(30)]
     results = []
     
+    print("=" * 80)
+    print("Traffic Signal Optimization using PSO with Fair Baseline Comparison")
+    print("=" * 80)
+    
     for i, seed_val in enumerate(seeds):
         random.seed(seed_val)
         np.random.seed(seed_val)
@@ -177,7 +181,9 @@ if __name__ == "__main__":
             'final_fitness': swarm.global_best_fit
         })
     
-    print("\n\nSaving results to CSV...")
+    # Save results to CSV
+    print("\n" + "=" * 80)
+    print("Saving results to CSV...")
     csv_filename = 'pso_results.csv'
     with open(csv_filename, 'w', newline='') as csvfile:
         fieldnames = ['run', 'seed', 'baseline_wait', 'optimized_wait', 'improvement_percent', 'ns_timing', 'ew_timing', 'final_fitness']
@@ -185,3 +191,22 @@ if __name__ == "__main__":
         writer.writeheader()
         writer.writerows(results)
     print(f"Results saved to {csv_filename}")
+    
+
+    # Print summary statistics
+    print("\n" + "=" * 80)
+    print("Statistical Summary")
+    print("=" * 80)
+    baseline_waits = []
+    optimized_waits = []
+    improvements = []
+
+    for r in results:
+        baseline_waits.append(r['baseline_wait'])
+        optimized_waits.append(r['optimized_wait'])
+        improvements.append(r['improvement_percent'])
+    
+    print(f"Baseline (Mean): {np.mean(baseline_waits):.2f}")
+    print(f"Optimized (Mean): {np.mean(optimized_waits):.2f}")
+    print(f"Improvement (Mean): {np.mean(improvements):.2f}%")
+    print(f"Improvement Range: [{np.min(improvements):.2f}%, {np.max(improvements):.2f}%]")
