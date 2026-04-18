@@ -5,9 +5,18 @@ C1 = 2.0
 C2 = 2.0
 
 # Constrained Optimisation
-# Constrain: 10 <= Green Signal Duration <= 120
+# Constraint: 10 <= Green Signal Duration <= 120
 # An individual is the time of green signal for NS and EW for each intersection.
 # Constraint is handled by clipping the values to the valid range after each update.
+# np.clip(self.time, a_min=10, a_max=120)
+
+# Resources:
+# https://www.sciencedirect.com/science/article/pii/S0096300315014630
+# https://www.scirp.org/journal/paperinformation?paperid=70955
+# https://www.researchgate.net/publication/287022845_Traffic_signal_control_based_on_particle_swarm_optimization
+# https://idus.us.es/server/api/core/bitstreams/7544aab6-f0db-493c-bd26-1e36f140302c/content
+# https://link.springer.com/chapter/10.1007/BFb0040810
+
 
 class Swarm:
     def __init__(self, num_particles):
@@ -108,6 +117,16 @@ if __name__ == "__main__":
         random.seed(seed_val)
         np.random.seed(seed_val)
         
+        # Recorded results comparing baseline signal settings with optimized ones.
+        dummy = Particle() 
+        baseline_timings = [60.0, 60.0]
+        baseline_wait = dummy.simulate(baseline_timings)
+        print(f"--- RUN {i+1} (Seed {seed_val}) ---")
+        print(f"Baseline Wait Time (60s/60s fixed): {baseline_wait} cars waiting")
+
+        # Run PSO optimization
         swarm = Swarm(num_particles=30)
         swarm.optimize(iterations=50)
-        print(f"Run {i+1} (Seed {seed_val}) - Global Best: {swarm.global_best}")
+        
+        print(f"Optimized Timings: NS={swarm.global_best[0]:.2f}s, EW={swarm.global_best[1]:.2f}s")
+        print(f"Optimized Wait Time: {swarm.global_best_fit} cars waiting\n")
