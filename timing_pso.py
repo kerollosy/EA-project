@@ -1,5 +1,6 @@
 import random
 import numpy as np
+import csv
 
 C1 = 2.0
 C2 = 2.0
@@ -113,11 +114,11 @@ class Particle:
             if time_in_cycle < green_NS_duration:
                 # NS is Green, EW is Red
                 if queue_NS > 0:
-                    queue_NS -= 2
+                    queue_NS -= 2  # 2 cars pass per second
             else:
                 # EW is Green, NS is Red
                 if queue_EW > 0:
-                    queue_EW -= 2
+                    queue_EW -= 2  # 2 cars pass per second
 
             # Add all waiting cars to the penalty score
             total_wait += (queue_NS + queue_EW)
@@ -126,7 +127,8 @@ class Particle:
 
 
 if __name__ == "__main__":
-    seeds = [random.randint(1, 10000) for _ in range(30)] # Generate 30 seeds
+    seeds = [random.randint(1, 10000) for _ in range(30)]
+    results = []
     
     for i, seed_val in enumerate(seeds):
         random.seed(seed_val)
@@ -162,3 +164,24 @@ if __name__ == "__main__":
         print(f"Optimized Timings: NS={swarm.global_best[0]:.2f}s, EW={swarm.global_best[1]:.2f}s")
         print(f"Optimized Wait Time: {optimized_wait:.2f} cars waiting")
         print(f"Improvement: {improvement:.2f}%")
+        
+        # Collect results
+        results.append({
+            'run': i + 1,
+            'seed': seed_val,
+            'baseline_wait': baseline_wait,
+            'optimized_wait': optimized_wait,
+            'improvement_percent': improvement,
+            'ns_timing': swarm.global_best[0],
+            'ew_timing': swarm.global_best[1],
+            'final_fitness': swarm.global_best_fit
+        })
+    
+    print("\n\nSaving results to CSV...")
+    csv_filename = 'pso_results.csv'
+    with open(csv_filename, 'w', newline='') as csvfile:
+        fieldnames = ['run', 'seed', 'baseline_wait', 'optimized_wait', 'improvement_percent', 'ns_timing', 'ew_timing', 'final_fitness']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(results)
+    print(f"Results saved to {csv_filename}")
