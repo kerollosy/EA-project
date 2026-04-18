@@ -1,0 +1,7 @@
+.venv/
+.vscode/
+
+*.python
+*.json
+*.csv
+*.png
