@@ -1,6 +1,7 @@
 import random
 import numpy as np
 import csv
+import json
 
 C1 = 2.0
 C2 = 2.0
@@ -191,6 +192,24 @@ if __name__ == "__main__":
         writer.writeheader()
         writer.writerows(results)
     print(f"Results saved to {csv_filename}")
+    
+
+    # Save seeds and summary statistics to JSON
+    json_filename = 'pso_seeds_and_metadata.json'
+    metadata = {
+        'num_runs': len(seeds),
+        'seeds': seeds,
+        'summary_statistics': {
+            'mean_baseline_wait': float(np.mean([r['baseline_wait'] for r in results])),
+            'mean_optimized_wait': float(np.mean([r['optimized_wait'] for r in results])),
+            'mean_improvement_percent': float(np.mean([r['improvement_percent'] for r in results])),
+            'min_improvement_percent': float(np.min([r['improvement_percent'] for r in results])),
+            'max_improvement_percent': float(np.max([r['improvement_percent'] for r in results]))
+        }
+    }
+    with open(json_filename, 'w') as jsonfile:
+        json.dump(metadata, jsonfile, indent=2)
+    print(f"Seeds and metadata saved to {json_filename}")
     
 
     # Print summary statistics
