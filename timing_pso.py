@@ -63,6 +63,8 @@ class Particle:
         r2 = np.random.random(len(self.time))
 
         self.v = w * self.v + C1 * r1 * (self.pbest - self.time) + C2 * r2 * (global_best - self.time)
+        self.v = np.clip(self.v, a_min=-10, a_max=10)
+
         self.time += self.v
         self.time = np.clip(self.time, a_min=10, a_max=120)
 
