@@ -7,12 +7,15 @@ from collections import defaultdict
 
 C1 = 2.0
 C2 = 2.0
+MIN_GREEN = 10
+MAX_GREEN = 120
+V_MAX = 10 
 
 # Constrained Optimisation
 # Constraint: 10 <= Green Signal Duration <= 120
 # An individual is the time of green signal for NS and EW for each intersection.
 # Constraint is handled by clipping the values to the valid range after each update.
-# np.clip(self.time, a_min=10, a_max=120)
+# np.clip(self.time, a_min=MIN_GREEN, a_max=MAX_GREEN)
 
 # Resources:
 # https://www.sciencedirect.com/science/article/pii/S0096300315014630
@@ -53,10 +56,10 @@ class Swarm:
 
 class Particle:
     def __init__(self, traffic_stream=None):
-        ns = random.uniform(10, 60)
-        ew = random.uniform(10, 60)
-        vns = random.uniform(-10, 10)
-        vew = random.uniform(-10, 10)
+        ns = random.uniform(MIN_GREEN, MAX_GREEN)
+        ew = random.uniform(MIN_GREEN, MAX_GREEN)
+        vns = random.uniform(-V_MAX, V_MAX)
+        vew = random.uniform(-V_MAX, V_MAX)
 
         self.time = np.array([ns, ew])
         self.v = np.array([vns, vew])
@@ -71,7 +74,7 @@ class Particle:
         r2 = np.random.random(len(self.time))
 
         self.v = w * self.v + C1 * r1 * (self.pbest - self.time) + C2 * r2 * (global_best - self.time)
-        self.v = np.clip(self.v, a_min=-10, a_max=10)
+        self.v = np.clip(self.v, a_min=-V_MAX, a_max=V_MAX)
 
         self.time += self.v
 
@@ -84,7 +87,7 @@ class Particle:
             mutation_shift = random.uniform(-15, 15)
             self.time[gene_index] += mutation_shift
 
-        self.time = np.clip(self.time, a_min=10, a_max=120)
+        self.time = np.clip(self.time, a_min=MIN_GREEN, a_max=MAX_GREEN)
 
         self.fitness = self.evaluate(self.time, traffic_stream)
         if self.fitness < self.pbest_fit:
@@ -118,12 +121,11 @@ class Particle:
 
             if time_in_cycle < green_NS_duration:
                 # NS is Green, EW is Red
-                if queue_NS > 0:
-                    queue_NS -= 2  # 2 cars pass per second
+                # 2 cars pass per second
+                queue_NS = max(0, queue_NS - 2)  # Ensure queue doesn't go negative
             else:
                 # EW is Green, NS is Red
-                if queue_EW > 0:
-                    queue_EW -= 2  # 2 cars pass per second
+                queue_EW = max(0, queue_EW - 2)  # Ensure queue doesn't go negative
 
             # Add all waiting cars to the penalty score
             total_wait += (queue_NS + queue_EW)
