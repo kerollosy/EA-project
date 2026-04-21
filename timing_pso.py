@@ -7,6 +7,8 @@ from collections import defaultdict
 
 C1 = 2.0
 C2 = 2.0
+
+NUM_INTERSECTIONS = 2
 MIN_GREEN = 10
 MAX_GREEN = 120
 V_MAX = 10 
@@ -56,13 +58,19 @@ class Swarm:
 
 class Particle:
     def __init__(self, traffic_stream=None):
-        ns = random.uniform(MIN_GREEN, MAX_GREEN)
-        ew = random.uniform(MIN_GREEN, MAX_GREEN)
-        vns = random.uniform(-V_MAX, V_MAX)
-        vew = random.uniform(-V_MAX, V_MAX)
+        timing = []
+        velocity = []
+        for _ in range(NUM_INTERSECTIONS):
+            ns = random.uniform(MIN_GREEN, MAX_GREEN)
+            ew = random.uniform(MIN_GREEN, MAX_GREEN)
+            vns = random.uniform(-V_MAX, V_MAX)
+            vew = random.uniform(-V_MAX, V_MAX)
+            timing.extend((ns, ew))
+            velocity.extend((vns, vew))
 
-        self.time = np.array([ns, ew])
-        self.v = np.array([vns, vew])
+        self.time = np.array(timing, dtype=float)
+        self.v = np.array(velocity, dtype=float)
+
         self.traffic_stream = traffic_stream
 
         self.fitness = self.evaluate(self.time, self.traffic_stream)
@@ -98,37 +106,39 @@ class Particle:
         return self.simulate(time, traffic_stream)
     
     def simulate(self, time, traffic_stream=None):
-        # Time array: [NS_green_duration, EW_green_duration]
-        green_NS_duration = time[0]
-        green_EW_duration = time[1]
-
-        if green_NS_duration <= 0 or green_EW_duration <= 0:
-            return float('inf')
-
-        total_cycle = green_NS_duration + green_EW_duration
-
-        queue_NS = 0
-        queue_EW = 0
+        queue_NS = [0] * NUM_INTERSECTIONS
+        queue_EW = [0] * NUM_INTERSECTIONS
         total_wait = 0
 
         for current_time in range(len(traffic_stream)):
-            arrivals_ns, arrivals_ew = traffic_stream[current_time]
-            queue_NS += arrivals_ns
-            queue_EW += arrivals_ew
+            arrivals_per_intersection = traffic_stream[current_time]
 
-            # Determine who has the green light
-            time_in_cycle = current_time % total_cycle
+            for intersection in range(NUM_INTERSECTIONS):
+                # Time array: [NS_green_duration, EW_green_duration]
+                green_NS_duration = time[2 * intersection]
+                green_EW_duration = time[2 * intersection + 1]
 
-            if time_in_cycle < green_NS_duration:
-                # NS is Green, EW is Red
-                # 2 cars pass per second
-                queue_NS = max(0, queue_NS - 2)  # Ensure queue doesn't go negative
-            else:
-                # EW is Green, NS is Red
-                queue_EW = max(0, queue_EW - 2)  # Ensure queue doesn't go negative
+                if green_NS_duration <= 0 or green_EW_duration <= 0:
+                    return float('inf')
+            
+                arrivals_ns, arrivals_ew = arrivals_per_intersection[intersection]
+                queue_NS[intersection] += arrivals_ns
+                queue_EW[intersection] += arrivals_ew
 
-            # Add all waiting cars to the penalty score
-            total_wait += (queue_NS + queue_EW)
+                # Determine who has the green light
+                total_cycle = green_NS_duration + green_EW_duration
+                time_in_cycle = current_time % total_cycle
+
+                if time_in_cycle < green_NS_duration:
+                    # NS is Green, EW is Red
+                    # 2 cars pass per second
+                    queue_NS[intersection] = max(0, queue_NS[intersection] - 2)  # Ensure queue doesn't go negative
+                else:
+                    # EW is Green, NS is Red
+                    queue_EW[intersection] = max(0, queue_EW[intersection] - 2)  # Ensure queue doesn't go negative
+
+                # Add all waiting cars to the penalty score
+                total_wait += (queue_NS[intersection] + queue_EW[intersection])
 
         return total_wait
 
@@ -151,18 +161,22 @@ if __name__ == "__main__":
         sim_time = 600
         traffic_stream = []
         for t in range(sim_time):
-            # NS gets 0, 1, or 2 cars (Average: 1 car per sec)
-            arrivals_ns = random.randint(0, 2)
+            b = []
+            for intersection in range(NUM_INTERSECTIONS):
+                # NS gets 0, 1, or 2 cars (Average: 1 car per sec)
+                arrivals_ns = random.randint(0, 2)
 
-            # EW gets 0 or 1 car (Average: 0.5 cars per sec)
-            arrivals_ew = random.randint(0, 1)
-            traffic_stream.append((arrivals_ns, arrivals_ew))
+                # EW gets 0 or 1 car (Average: 0.5 cars per sec)
+                arrivals_ew = random.randint(0, 1)
+                b.append((arrivals_ns, arrivals_ew))
+
+            traffic_stream.append(b)
         
         print(f"\n--- RUN {i+1} (Seed {seed_val}) ---")
         
         # BASELINE: Fixed 60/60 timing on the same traffic stream
         baseline_particle = Particle(traffic_stream=traffic_stream)
-        baseline_timings = np.array([60.0, 60.0])
+        baseline_timings = np.array([60.0, 60.0] * NUM_INTERSECTIONS)
         baseline_wait = baseline_particle.simulate(baseline_timings, traffic_stream)
         print(f"Baseline Wait Time (60s/60s fixed): {baseline_wait:.2f} cars waiting")
         
