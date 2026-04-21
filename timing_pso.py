@@ -1,7 +1,9 @@
 import random
 import numpy as np
+import matplotlib.pyplot as plt
 import csv
 import json
+from collections import defaultdict
 
 C1 = 2.0
 C2 = 2.0
@@ -26,6 +28,7 @@ class Swarm:
         self.global_best_fit = float('inf')
         self.particles = []
         self.traffic_stream = traffic_stream
+        self.fitness_history = []
 
         for _ in range(num_particles):
             particle = Particle(traffic_stream=traffic_stream)
@@ -45,6 +48,7 @@ class Swarm:
                     self.global_best_fit = particle.fitness
                     self.global_best = particle.time.copy()
             
+            self.fitness_history.append(self.global_best_fit)
             w = max(0.4, w - 0.02)
 
 class Particle:
@@ -130,6 +134,7 @@ class Particle:
 if __name__ == "__main__":
     seeds = [random.randint(1, 10000) for _ in range(30)]
     results = []
+    convergence_data = defaultdict(list)
     
     print("=" * 80)
     print("Traffic Signal Optimization using PSO with Fair Baseline Comparison")
@@ -162,6 +167,9 @@ if __name__ == "__main__":
         # PSO OPTIMIZATION: Use same traffic stream
         swarm = Swarm(num_particles=30, traffic_stream=traffic_stream)
         swarm.optimize(iterations=50)
+        
+        # Store convergence history
+        convergence_data[seed_val] = swarm.fitness_history
         
         optimized_wait = swarm.global_best_fit
         improvement = ((baseline_wait - optimized_wait) / baseline_wait) * 100 if baseline_wait > 0 else 0
@@ -222,8 +230,56 @@ if __name__ == "__main__":
     print("Statistical Summary")
     print("=" * 80)
     
-    print(f"Baseline (Mean ± Std): {np.mean(baseline_waits):.2f} ± {np.std(baseline_waits):.2f}")
-    print(f"Optimized (Mean ± Std): {np.mean(optimized_waits):.2f} ± {np.std(optimized_waits):.2f}")
+    print(f"Baseline (Mean ± Std): {np.mean(baseline_waits):.2f} ± {np.std(baseline_waits):.2f} cars waiting")
+    print(f"Optimized (Mean ± Std): {np.mean(optimized_waits):.2f} ± {np.std(optimized_waits):.2f} cars waiting")
     print(f"Improvement (Mean ± Std): {np.mean(improvements):.2f}% ± {np.std(improvements):.2f}%")
     print(f"Improvement Range: [{np.min(improvements):.2f}%, {np.max(improvements):.2f}%]")
     
+    # Generate Grpahs
+    print("\n" + "=" * 80)
+    print("Generating visualizations...")
+    
+    # Plot 1: Convergence curves (average across all runs)
+    fig1, ax1 = plt.subplots(figsize=(10, 6))
+    mean_convergence = np.mean([convergence_data[s] for s in seeds], axis=0)
+    ax1.plot(mean_convergence, linewidth=2, color='blue', label='PSO Convergence (Mean)')
+    ax1.set_xlabel('Iteration', fontsize=12)
+    ax1.set_ylabel('Best Fitness (Total Wait Time)', fontsize=12)
+    ax1.set_title('PSO Convergence Over 50 Iterations (Averaged Across 30 Runs)', fontsize=14)
+    ax1.grid(True, alpha=0.3)
+    ax1.legend()
+    fig1.tight_layout()
+    fig1.savefig('convergence_curve.png', dpi=300)
+    print("Saved: convergence_curve.png")
+    
+    # Plot 2: Baseline vs Optimized (bar chart)
+    fig2, ax2 = plt.subplots(figsize=(10, 6))
+    x_pos = np.arange(len(results))
+    width = 0.35
+    
+    ax2.bar(x_pos - width/2, baseline_waits, width, label='Baseline (60/60)', alpha=0.8, color='orange')
+    ax2.bar(x_pos + width/2, optimized_waits, width, label='PSO Optimized', alpha=0.8, color='green')
+    
+    ax2.set_xlabel('Run Number', fontsize=12)
+    ax2.set_ylabel('Total Wait Time (cars)', fontsize=12)
+    ax2.set_title('Baseline vs PSO-Optimized Signal Timings (30 Runs)', fontsize=14)
+    ax2.set_xticks(x_pos)
+    ax2.set_xticklabels([str(r+1) for r in range(len(results))])
+    ax2.legend()
+    ax2.grid(True, alpha=0.3, axis='y')
+    fig2.tight_layout()
+    fig2.savefig('baseline_vs_optimized.png', dpi=300)
+    print("Saved: baseline_vs_optimized.png")
+    
+    # Plot 3: Improvement percentage distribution
+    fig3, ax3 = plt.subplots(figsize=(10, 6))
+    ax3.hist(improvements, bins=10, color='purple', alpha=0.7, edgecolor='black')
+    ax3.axvline(np.mean(improvements), color='red', linestyle='--', linewidth=2, label=f'Mean: {np.mean(improvements):.2f}%')
+    ax3.set_xlabel('Improvement (%)', fontsize=12)
+    ax3.set_ylabel('Frequency', fontsize=12)
+    ax3.set_title('Distribution of Improvement Percentages (30 Runs)', fontsize=14)
+    ax3.legend()
+    ax3.grid(True, alpha=0.3, axis='y')
+    fig3.tight_layout()
+    fig3.savefig('improvement_distribution.png', dpi=300)
+    print("Saved: improvement_distribution.png")
