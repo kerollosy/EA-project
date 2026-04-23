@@ -11,11 +11,13 @@
 
 import csv
 import json
+import os
 import random
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 from deap import base, creator, tools
 
 # Hyperparameters
@@ -177,16 +179,76 @@ def load_or_create_seeds(filename='seeds.json', num_runs=30):
         print(f"Generated and saved new {filename}")
         return seeds
 
+
+def plot_optimization_results(run_histories, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    sns.set_theme(style="whitegrid", context="talk")
+
+    generations = np.arange(NUM_GENERATIONS)
+    best_curves = np.array([run["best_curve"] for run in run_histories], dtype=float)
+    avg_curves = np.array([run["avg_curve"] for run in run_histories], dtype=float)
+    improvement_curves = np.array([run["improvement_curve"] for run in run_histories], dtype=float)
+
+    mean_best = best_curves.mean(axis=0)
+    std_best = best_curves.std(axis=0)
+    mean_avg = avg_curves.mean(axis=0)
+    mean_improvement = improvement_curves.mean(axis=0)
+    std_improvement = improvement_curves.std(axis=0)
+
+    baseline_values = np.array([run["baseline_objective"] for run in run_histories], dtype=float)
+    final_best_values = np.array([run["final_best"] for run in run_histories], dtype=float)
+    baseline_mean = baseline_values.mean()
+
+    fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+
+    axes[0].plot(generations, mean_best, label="Mean best-so-far objective", color="#1f77b4", linewidth=2.5)
+    axes[0].fill_between(generations, mean_best - std_best, mean_best + std_best, color="#1f77b4", alpha=0.2)
+    axes[0].plot(generations, mean_avg, label="Mean population objective", color="#2ca02c", linewidth=2.0, alpha=0.9)
+    axes[0].axhline(baseline_mean, linestyle="--", color="#d62728", linewidth=2.0, label="Mean baseline objective")
+    axes[0].set_title("PSO Objective Over Generations")
+    axes[0].set_xlabel("Generation")
+    axes[0].set_ylabel("Objective (lower is better)")
+    axes[0].legend()
+
+    axes[1].plot(generations, mean_improvement, label="Mean improvement vs baseline", color="#ff7f0e", linewidth=2.5)
+    axes[1].fill_between(
+        generations,
+        mean_improvement - std_improvement,
+        mean_improvement + std_improvement,
+        color="#ff7f0e",
+        alpha=0.2,
+    )
+    axes[1].axhline(0.0, linestyle="--", color="black", linewidth=1.2)
+    axes[1].set_title("Improvement Over Baseline")
+    axes[1].set_xlabel("Generation")
+    axes[1].set_ylabel("Improvement (%)")
+    axes[1].legend()
+
+    fig.tight_layout()
+    progress_plot_path = os.path.join(output_dir, "pso_progress_vs_baseline.png")
+    fig.savefig(progress_plot_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+    fig2, ax2 = plt.subplots(figsize=(14, 7))
+    run_indices = np.arange(1, len(run_histories) + 1)
+    width = 0.42
+    ax2.bar(run_indices - width / 2, baseline_values, width=width, label="Baseline objective", color="#d62728", alpha=0.85)
+    ax2.bar(run_indices + width / 2, final_best_values, width=width, label="PSO final best objective", color="#1f77b4", alpha=0.9)
+    ax2.set_title("Per-Run Baseline vs PSO Final Best")
+    ax2.set_xlabel("Run index")
+    ax2.set_ylabel("Objective (lower is better)")
+    ax2.legend()
+
+    fig2.tight_layout()
+    comparison_plot_path = os.path.join(output_dir, "baseline_vs_pso_per_run.png")
+    fig2.savefig(comparison_plot_path, dpi=180, bbox_inches="tight")
+    plt.close(fig2)
+
+    return progress_plot_path, comparison_plot_path
+
 if __name__ == "__main__":
     seeds = load_or_create_seeds('seeds.json', num_runs=30)
-
-    # prepare the statistics object:
-    stats = tools.Statistics(lambda ind: ind.fitness.values)
-    stats.register("min", np.min)
-    stats.register("avg", np.mean)
-
-    logbook = tools.Logbook()
-    logbook.header = ["gen", "evals"] + stats.fields
+    run_histories = []
 
     for i, seed_val in enumerate(seeds):
         best = None
@@ -200,6 +262,10 @@ if __name__ == "__main__":
         traffic_stream = generate_traffic_stream(SIM_HORIZON)
 
         print(f"\n--- RUN {i+1} (Seed {seed_val}) ---")
+
+        best_curve = []
+        avg_curve = []
+        best_so_far = float('inf')
 
         for generation in range(NUM_GENERATIONS):
 
@@ -217,13 +283,23 @@ if __name__ == "__main__":
                     best = creator.Particle(particle)
                     best.fitness.values = particle.fitness.values
 
+            generation_fitness = np.array([particle.fitness.values[0] for particle in population], dtype=float)
+            generation_min = float(np.min(generation_fitness))
+            generation_avg = float(np.mean(generation_fitness))
+            best_so_far = min(best_so_far, generation_min)
+
+            best_curve.append(best_so_far)
+            avg_curve.append(generation_avg)
+
             # update each particle's speed and position:
             for particle in population:
                 toolbox.update(particle, best)
 
-            # record the statistics for the current generation and print it:
-            logbook.record(gen=generation, evals=len(population), **stats.compile(population))
-            print(logbook.stream)
+            if generation % 10 == 0 or generation == NUM_GENERATIONS - 1:
+                print(
+                    f"Gen {generation:02d} | Best so far: {best_so_far:.2f} | "
+                    f"Generation avg: {generation_avg:.2f}"
+                )
     
         baseline_timings = np.array([60.0, 60.0] * NUM_INTERSECTIONS, dtype=float)
         baseline_metrics = simulate_traffic(baseline_timings, traffic_stream)
@@ -233,7 +309,24 @@ if __name__ == "__main__":
             f"Objective: {baseline_metrics['objective']:.2f}"
         )
 
+        baseline_objective = float(baseline_metrics['objective'])
+        improvement_curve = [((baseline_objective - value) / baseline_objective) * 100.0 for value in best_curve]
+        run_histories.append(
+            {
+                "run_index": i + 1,
+                "seed": seed_val,
+                "best_curve": best_curve,
+                "avg_curve": avg_curve,
+                "improvement_curve": improvement_curve,
+                "baseline_objective": baseline_objective,
+                "final_best": float(best.fitness.values[0]),
+            }
+        )
+
         # print info for best solution found:
         print("-- Best Particle = ", np.round(best, 2))
         print("-- Best Fitness  = ", best.fitness.values[0])
-    
+
+    progress_plot_path, comparison_plot_path = plot_optimization_results(run_histories, OUTPUT_DIR)
+    print(f"\nSaved plot: {progress_plot_path}")
+    print(f"Saved plot: {comparison_plot_path}")
