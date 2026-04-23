@@ -1,3 +1,14 @@
+"""
+1. نعمل الرسومات 
+2. نشوف ليه ال EW بيبقي دايما ب10 ونصلح الموضوع ده
+3. نسيف الداتا
+4. نظبط ال W ونخليها تقل
+5. نعمل مقارنة بين ال PSO و ال GA
+6. نعمل الGUI
+7. نعمل ال report
+"""
+
+
 import csv
 import json
 import random
@@ -19,6 +30,10 @@ V_MAX = 10
 SERVICE_RATE = 2  # cars/sec during green
 # لو حصل زحمة كبيرة، ممكن نزيد الوزن ده عشان نركز أكتر على تقليل الزحمة بدل الانتظار
 CONGESTION_WEIGHT = 120
+POPULATION_SIZE = 30
+SIM_HORIZON = 150
+NUM_GENERATIONS = 50
+OUTPUT_DIR = "outputs"
 
 # Constrained Optimisation
 # Constraint: 10 <= Green Signal Duration <= 120
@@ -140,8 +155,10 @@ def generate_traffic_stream(sim_time):
     for _ in range(sim_time):
         arrivals_snapshot = []
         for intersection_idx in range(NUM_INTERSECTIONS):
-            arrivals_ns = random.randint(0, 2 + (intersection_idx % 2))
-            arrivals_ew = random.randint(0, 1 + (1 if intersection_idx in (1, 3) else 0))
+            # Strictly fair demand model: NS and EW get identical arrivals.
+            base_arrival = random.randint(0, 3)
+            arrivals_ns = base_arrival
+            arrivals_ew = base_arrival
             arrivals_snapshot.append((arrivals_ns, arrivals_ew))
         traffic_stream.append(arrivals_snapshot)
     return traffic_stream
@@ -178,14 +195,13 @@ if __name__ == "__main__":
         np.random.seed(seed_val)
 
         # call populationCreator with n=30 to create a population of 30 particles:
-        population = toolbox.populationCreator(n=30)
+        population = toolbox.populationCreator(n=POPULATION_SIZE)
 
-        sim_time = 150
-        traffic_stream = generate_traffic_stream(sim_time)
+        traffic_stream = generate_traffic_stream(SIM_HORIZON)
 
         print(f"\n--- RUN {i+1} (Seed {seed_val}) ---")
 
-        for generation in range(sim_time):
+        for generation in range(NUM_GENERATIONS):
 
             for particle in population:
                 # find the fitness of the particle:
