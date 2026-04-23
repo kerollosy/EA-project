@@ -33,11 +33,10 @@ CONGESTION_WEIGHT = 120
 # https://idus.us.es/server/api/core/bitstreams/7544aab6-f0db-493c-bd26-1e36f140302c/content
 # https://link.springer.com/chapter/10.1007/BFb0040810
 
+toolbox = base.Toolbox()
 
 creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
 creator.create("Particle", np.ndarray, fitness=creator.FitnessMin, speed=None, best=None, smin=-V_MAX, smax=V_MAX)
-
-toolbox = base.Toolbox()
 
 def createParticle():
     particle = creator.Particle(np.random.uniform(MIN_GREEN, MAX_GREEN, NUM_INTERSECTIONS * 2))
@@ -58,8 +57,12 @@ def updateParticle(particle, global_best):
     # localSpeedUpdate = localUpdateFactor * (particle.best - particle)
     # globalSpeedUpdate = globalUpdateFactor * (global_best - particle)
 
-    # scalculate updated speed:
-    particle.speed = W * particle.speed + C1 * r1 * (particle.best - particle) + C2 * r2 * (global_best - particle)
+    # calculate updated speed (inertia + cognitive + social)
+    particle.speed = (
+        W * particle.speed
+        + C1 * r1 * (particle.best - particle)  # Cognitive (local)
+        + C2 * r2 * (global_best - particle)  # Social (global)
+    )
 
     # enforce limits on the updated speed:
     particle.speed = np.clip(particle.speed, -V_MAX, V_MAX)
@@ -79,7 +82,7 @@ def evaluate(particle, traffic_stream):
     green_EW_duration = particle[1]
 
     if green_NS_duration <= 0 or green_EW_duration <= 0:
-        return float('inf')
+        return (float('inf'),)
 
     total_cycle = green_NS_duration + green_EW_duration
     
@@ -88,7 +91,7 @@ def evaluate(particle, traffic_stream):
     total_wait = 0
 
     for current_time in range(len(traffic_stream)):
-        arrivals_ns, arrivals_ew = traffic_stream[current_time]
+        arrivals_ns, arrivals_ew = traffic_stream[current_time][0]
         queue_NS += arrivals_ns
         queue_EW += arrivals_ew
 
@@ -98,10 +101,10 @@ def evaluate(particle, traffic_stream):
         if time_in_cycle < green_NS_duration:
             # NS is Green, EW is Red
             # 2 cars pass per second
-            queue_NS = max(0, queue_NS - 2)  # Ensure queue doesn't go negative
+            queue_NS = max(0, queue_NS - SERVICE_RATE)  # Ensure queue doesn't go negative
         else:
             # EW is Green, NS is Red
-            queue_EW = max(0, queue_EW - 2)  # Ensure queue doesn't go negative
+            queue_EW = max(0, queue_EW - SERVICE_RATE)  # Ensure queue doesn't go negative
 
         # Add all waiting cars to the penalty score
         total_wait += (queue_NS + queue_EW)
@@ -113,12 +116,12 @@ toolbox.register("evaluate", evaluate)
 def generate_traffic_stream(sim_time):
     traffic_stream = []
     for _ in range(sim_time):
-        # NS gets 0, 1, or 2 cars (Average: 1 car per sec)
-        arrivals_ns = random.randint(0, 2)
-        # EW gets 0 or 1 car (Average: 0.5 cars per sec)
-        arrivals_ew = random.randint(0, 1)
-        traffic_stream.append((arrivals_ns, arrivals_ew))
-
+        arrivals_snapshot = []
+        for intersection_idx in range(NUM_INTERSECTIONS):
+            arrivals_ns = random.randint(0, 2 + (intersection_idx % 2))
+            arrivals_ew = random.randint(0, 1 + (1 if intersection_idx in (1, 3) else 0))
+            arrivals_snapshot.append((arrivals_ns, arrivals_ew))
+        traffic_stream.append(arrivals_snapshot)
     return traffic_stream
 
 def load_or_create_seeds(filename='seeds.json', num_runs=30):
@@ -138,9 +141,6 @@ def load_or_create_seeds(filename='seeds.json', num_runs=30):
 if __name__ == "__main__":
     seeds = load_or_create_seeds('seeds.json', num_runs=30)
 
-    # call populationCreator with n=30 to create a population of 30 particles:
-    population = toolbox.populationCreator(n=30)
-
     # prepare the statistics object:
     stats = tools.Statistics(lambda ind: ind.fitness.values)
     stats.register("min", np.min)
@@ -154,6 +154,9 @@ if __name__ == "__main__":
 
         random.seed(seed_val)
         np.random.seed(seed_val)
+
+        # call populationCreator with n=30 to create a population of 30 particles:
+        population = toolbox.populationCreator(n=30)
 
         sim_time = 600
         traffic_stream = generate_traffic_stream(sim_time)
