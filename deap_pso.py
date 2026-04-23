@@ -12,7 +12,7 @@ W = 0.7
 C1 = 2.0
 C2 = 2.0
 
-NUM_INTERSECTIONS = 1
+NUM_INTERSECTIONS = 2
 MIN_GREEN = 10
 MAX_GREEN = 120
 V_MAX = 10
@@ -180,7 +180,7 @@ if __name__ == "__main__":
         # call populationCreator with n=30 to create a population of 30 particles:
         population = toolbox.populationCreator(n=30)
 
-        sim_time = 600
+        sim_time = 150
         traffic_stream = generate_traffic_stream(sim_time)
 
         print(f"\n--- RUN {i+1} (Seed {seed_val}) ---")
@@ -209,6 +209,15 @@ if __name__ == "__main__":
             logbook.record(gen=generation, evals=len(population), **stats.compile(population))
             print(logbook.stream)
     
+        baseline_timings = np.array([60.0, 60.0] * NUM_INTERSECTIONS, dtype=float)
+        baseline_metrics = simulate_traffic(baseline_timings, traffic_stream)
+        print(
+            f"Baseline -> Wait: {baseline_metrics['total_wait']:.2f}, "
+            f"Avg Queue: {baseline_metrics['avg_queue']:.2f}, "
+            f"Objective: {baseline_metrics['objective']:.2f}"
+        )
+
         # print info for best solution found:
         print("-- Best Particle = ", np.round(best, 2))
         print("-- Best Fitness  = ", best.fitness.values[0])
+    
