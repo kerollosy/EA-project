@@ -77,39 +77,61 @@ def repairParticle(particle):
 
 toolbox.register("update", updateParticle)
 
-def evaluate(particle, traffic_stream):
-    green_NS_duration = particle[0]
-    green_EW_duration = particle[1]
+def simulate_traffic(time, traffic_stream):
+    if traffic_stream is None or len(traffic_stream) == 0:
+        return {
+            'total_wait': float('inf'),
+            'avg_queue': float('inf'),
+            'objective': float('inf')
+        }
 
-    if green_NS_duration <= 0 or green_EW_duration <= 0:
-        return (float('inf'),)
-
-    total_cycle = green_NS_duration + green_EW_duration
-    
-    queue_NS = 0
-    queue_EW = 0
-    total_wait = 0
+    queue_ns = [0] * NUM_INTERSECTIONS
+    queue_ew = [0] * NUM_INTERSECTIONS
+    total_wait = 0.0
+    queue_accumulator = 0.0
 
     for current_time in range(len(traffic_stream)):
-        arrivals_ns, arrivals_ew = traffic_stream[current_time][0]
-        queue_NS += arrivals_ns
-        queue_EW += arrivals_ew
+        arrivals_per_intersection = traffic_stream[current_time]
 
-        # Determine who has the green light
-        time_in_cycle = current_time % total_cycle
+        for i in range(NUM_INTERSECTIONS):
+            green_ns = time[2 * i]
+            green_ew = time[2 * i + 1]
 
-        if time_in_cycle < green_NS_duration:
-            # NS is Green, EW is Red
-            # 2 cars pass per second
-            queue_NS = max(0, queue_NS - SERVICE_RATE)  # Ensure queue doesn't go negative
-        else:
-            # EW is Green, NS is Red
-            queue_EW = max(0, queue_EW - SERVICE_RATE)  # Ensure queue doesn't go negative
+            if green_ns <= 0 or green_ew <= 0:
+                return {
+                    'total_wait': float('inf'),
+                    'avg_queue': float('inf'),
+                    'objective': float('inf')
+                }
 
-        # Add all waiting cars to the penalty score
-        total_wait += (queue_NS + queue_EW)
+            arrivals_ns, arrivals_ew = arrivals_per_intersection[i]
+            queue_ns[i] += arrivals_ns
+            queue_ew[i] += arrivals_ew
 
-    return (total_wait,)
+            total_cycle = green_ns + green_ew
+            time_in_cycle = current_time % int(total_cycle)
+
+            if time_in_cycle < green_ns:
+                queue_ns[i] = max(0, queue_ns[i] - SERVICE_RATE)
+            else:
+                queue_ew[i] = max(0, queue_ew[i] - SERVICE_RATE)
+
+            current_total_queue = queue_ns[i] + queue_ew[i]
+            total_wait += current_total_queue
+            queue_accumulator += current_total_queue
+
+    avg_queue = queue_accumulator / (len(traffic_stream) * NUM_INTERSECTIONS)
+    objective = total_wait + CONGESTION_WEIGHT * avg_queue
+
+    return {
+        'total_wait': float(total_wait),
+        'avg_queue': float(avg_queue),
+        'objective': float(objective)
+    }
+
+def evaluate(particle, traffic_stream):
+    results = simulate_traffic(particle, [])
+    return (results['objective'],)
 
 toolbox.register("evaluate", evaluate)
 
