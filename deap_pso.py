@@ -130,7 +130,7 @@ def simulate_traffic(time, traffic_stream):
     }
 
 def evaluate(particle, traffic_stream):
-    results = simulate_traffic(particle, [])
+    results = simulate_traffic(particle, traffic_stream)
     return (results['objective'],)
 
 toolbox.register("evaluate", evaluate)
@@ -206,8 +206,8 @@ if __name__ == "__main__":
                 toolbox.update(particle, best)
 
             # record the statistics for the current generation and print it:
-            # logbook.record(gen=generation, evals=len(population), **stats.compile(population))
-            # print(logbook.stream)
+            logbook.record(gen=generation, evals=len(population), **stats.compile(population))
+            print(logbook.stream)
     
         # print info for best solution found:
         print("-- Best Particle = ", np.round(best, 2))
