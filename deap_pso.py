@@ -20,10 +20,6 @@ SERVICE_RATE = 2  # cars/sec during green
 # لو حصل زحمة كبيرة، ممكن نزيد الوزن ده عشان نركز أكتر على تقليل الزحمة بدل الانتظار
 CONGESTION_WEIGHT = 120
 
-RANDOM_SEED = 42
-np.random.seed(RANDOM_SEED)
-random.seed(RANDOM_SEED)
-
 # Constrained Optimisation
 # Constraint: 10 <= Green Signal Duration <= 120
 # An individual is the time of green signal for NS and EW for each intersection.
@@ -125,7 +121,23 @@ def generate_traffic_stream(sim_time):
 
     return traffic_stream
 
+def load_or_create_seeds(filename='seeds.json', num_runs=30):
+    try:
+        with open(filename, 'r') as f:
+            return json.load(f)["seeds"]
+    except FileNotFoundError as e:
+        print(f"Warning: {filename} not found. Generating new seeds. {e}")
+        seeds = [random.randint(1, 10000) for _ in range(num_runs)]
+
+        with open(filename, 'w') as f:
+            json.dump({'seeds': seeds}, f, indent=2)
+        
+        print(f"Generated and saved new {filename}")
+        return seeds
+
 if __name__ == "__main__":
+    seeds = load_or_create_seeds('seeds.json', num_runs=30)
+
     # call populationCreator with n=30 to create a population of 30 particles:
     population = toolbox.populationCreator(n=30)
 
@@ -137,35 +149,41 @@ if __name__ == "__main__":
     logbook = tools.Logbook()
     logbook.header = ["gen", "evals"] + stats.fields
 
-    best = None
+    for i, seed_val in enumerate(seeds):
+        best = None
 
-    sim_time = 1000
-    traffic_stream = generate_traffic_stream(sim_time)
+        random.seed(seed_val)
+        np.random.seed(seed_val)
 
-    for generation in range(sim_time):
+        sim_time = 600
+        traffic_stream = generate_traffic_stream(sim_time)
 
-        for particle in population:
-            # find the fitness of the particle:
-            particle.fitness.values = toolbox.evaluate(particle, traffic_stream)
+        print(f"\n--- RUN {i+1} (Seed {seed_val}) ---")
 
-            # particle best needs to be updated:
-            if particle.best is None or particle.best.size == 0 or particle.best.fitness < particle.fitness:
-                particle.best = creator.Particle(particle)
-                particle.best.fitness.values = particle.fitness.values
+        for generation in range(sim_time):
 
-            # global best needs to be updated:
-            if best is None or best.size == 0 or best.fitness < particle.fitness:
-                best = creator.Particle(particle)
-                best.fitness.values = particle.fitness.values
+            for particle in population:
+                # find the fitness of the particle:
+                particle.fitness.values = toolbox.evaluate(particle, traffic_stream)
 
-        # update each particle's speed and position:
-        for particle in population:
-            toolbox.update(particle, best)
+                # particle best needs to be updated:
+                if particle.best is None or particle.best.size == 0 or particle.best.fitness < particle.fitness:
+                    particle.best = creator.Particle(particle)
+                    particle.best.fitness.values = particle.fitness.values
 
-        # record the statistics for the current generation and print it:
-        # logbook.record(gen=generation, evals=len(population), **stats.compile(population))
-        # print(logbook.stream)
+                # global best needs to be updated:
+                if best is None or best.size == 0 or best.fitness < particle.fitness:
+                    best = creator.Particle(particle)
+                    best.fitness.values = particle.fitness.values
+
+            # update each particle's speed and position:
+            for particle in population:
+                toolbox.update(particle, best)
+
+            # record the statistics for the current generation and print it:
+            # logbook.record(gen=generation, evals=len(population), **stats.compile(population))
+            # print(logbook.stream)
     
-    # print info for best solution found:
-    print("-- Best Particle = ", np.round(best, 2))
-    print("-- Best Fitness  = ", best.fitness.values[0])
+        # print info for best solution found:
+        print("-- Best Particle = ", np.round(best, 2))
+        print("-- Best Fitness  = ", best.fitness.values[0])
