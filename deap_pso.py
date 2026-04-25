@@ -78,21 +78,13 @@ def updateParticle(particle, global_best, inertia_weight):
     r1 = np.random.random(particle.size)
     r2 = np.random.random(particle.size)
 
-    # # calculate local and global speed updates:
-    # localSpeedUpdate = localUpdateFactor * (particle.best - particle)
-    # globalSpeedUpdate = globalUpdateFactor * (global_best - particle)
-
-    # calculate updated speed (inertia + cognitive + social)
     particle.speed = (
         inertia_weight * particle.speed
         + C1 * r1 * (particle.best - particle)  # Cognitive (local)
         + C2 * r2 * (global_best - particle)  # Social (global)
     )
 
-    # enforce limits on the updated speed:
     particle.speed = np.clip(particle.speed, -V_MAX, V_MAX)
-
-    # replace particle position with old-position + speed:
     particle[:] = particle + particle.speed
     repairParticle(particle)
 
@@ -208,7 +200,7 @@ def plot_optimization_results(run_histories, output_dir):
     baseline_mean = baseline_values.mean()
 
     fig, axes = plt.subplots(1, 2, figsize=(18, 7))
-
+    
     axes[0].plot(generations, mean_best, label="Mean best-so-far objective", color="#1f77b4", linewidth=2.5)
     axes[0].fill_between(generations, mean_best - std_best, mean_best + std_best, color="#1f77b4", alpha=0.2)
     axes[0].plot(generations, mean_avg, label="Mean population objective", color="#2ca02c", linewidth=2.0, alpha=0.9)
@@ -251,7 +243,7 @@ def plot_optimization_results(run_histories, output_dir):
     comparison_plot_path = os.path.join(output_dir, "baseline_vs_pso_per_run.png")
     fig2.savefig(comparison_plot_path, dpi=180, bbox_inches="tight")
     plt.close(fig2)
-
+    
     return progress_plot_path, comparison_plot_path
 
 def save_run_summaries(run_histories, output_dir):
@@ -264,7 +256,7 @@ def save_run_summaries(run_histories, output_dir):
             "baseline_objective", "final_best",
             "improvement_percent", "best_timings",
         ])
-scheme = "linear_decreasing" if USE_LINEAR_INERTIA else f"fixed_W={W_FIXED}"
+        scheme = "linear_decreasing" if USE_LINEAR_INERTIA else f"fixed_W={W_FIXED}"
         for run in run_histories:
             baseline = float(run["baseline_objective"])
             final_best = float(run["final_best"])
@@ -289,7 +281,7 @@ if __name__ == "__main__":
 
         # call populationCreator with n=30 to create a population of 30 particles:
         population = toolbox.populationCreator(n=POPULATION_SIZE)
-
+        
         traffic_stream = generate_traffic_stream(SIM_HORIZON)
 
         print(f"\n--- RUN {run_idx + 1} (Seed {seed_val}) ---")
@@ -299,17 +291,11 @@ if __name__ == "__main__":
         best_so_far = float('inf')
 
         for generation in range(NUM_GENERATIONS):
-
             for particle in population:
-                # find the fitness of the particle:
                 particle.fitness.values = toolbox.evaluate(particle, traffic_stream)
-
-                # particle best needs to be updated:
                 if particle.best is None or particle.best.size == 0 or particle.best.fitness < particle.fitness:
                     particle.best = creator.Particle(particle)
                     particle.best.fitness.values = particle.fitness.values
-
-                # global best needs to be updated:
                 if best is None or best.size == 0 or best.fitness < particle.fitness:
                     best = creator.Particle(particle)
                     best.fitness.values = particle.fitness.values
@@ -331,7 +317,7 @@ if __name__ == "__main__":
                     f"Gen {generation:02d} | W={current_w:.3f} | "
                     f"Best so far: {best_so_far:.2f} | Generation avg: {generation_avg:.2f}"
                 )
-    
+
         baseline_timings = np.array([60.0, 60.0] * NUM_INTERSECTIONS, dtype=float)
         baseline_metrics = simulate_traffic(baseline_timings, traffic_stream)
         print(
@@ -342,21 +328,20 @@ if __name__ == "__main__":
 
         baseline_objective = float(baseline_metrics['objective'])
         improvement_curve = [
-((baseline_objective - v) / baseline_objective) * 100.0 if baseline_objective else 0.0
-for v in best_curve
-]
+            ((baseline_objective - v) / baseline_objective) * 100.0 if baseline_objective else 0.0
+            for v in best_curve
+        ]
         run_histories.append({
-                "run_index": run_idx + 1,
-                "seed": seed_val,
-                "best_curve": best_curve,
-                "avg_curve": avg_curve,
-                "improvement_curve": improvement_curve,
-                "baseline_objective": baseline_objective,
-                "final_best": float(best.fitness.values[0]),
-                "best_solution": np.array(best, dtype=float).tolist(),
-            })
+            "run_index": run_idx + 1,
+            "seed": seed_val,
+            "best_curve": best_curve,
+            "avg_curve": avg_curve,
+            "improvement_curve": improvement_curve,
+            "baseline_objective": baseline_objective,
+            "final_best": float(best.fitness.values[0]),
+            "best_solution": np.array(best, dtype=float).tolist(),
+        })
 
-        # print info for best solution found:
         print("-- Best Particle = ", np.round(best, 2))
         print("-- Best Fitness  = ", best.fitness.values[0])
 
