@@ -9,7 +9,11 @@ import seaborn as sns
 from deap import base, creator, tools
 
 # Hyperparameters
-W = 0.7
+USE_LINEAR_INERTIA = True
+W_MAX = 0.9
+W_MIN = 0.4
+W_FIXED = 0.7
+
 C1 = 2.0
 C2 = 2.0
 
@@ -23,6 +27,7 @@ CONGESTION_WEIGHT = 120
 POPULATION_SIZE = 30
 SIM_HORIZON = 150
 NUM_GENERATIONS = 50
+NUM_RUNS = 30
 OUTPUT_DIR = "pso_outputs"
 
 # Constrained Optimisation
@@ -34,7 +39,7 @@ OUTPUT_DIR = "pso_outputs"
 # Resources:
 # https://www.sciencedirect.com/science/article/pii/S0096300315014630
 # https://www.scirp.org/journal/paperinformation?paperid=70955
-# https://www.researchgate.net/publication/287022845_Traffic_signal_control_based_on_particle_swarm_optimization
+# https://www.researchgate.net/publication/287022845
 # https://idus.us.es/server/api/core/bitstreams/7544aab6-f0db-493c-bd26-1e36f140302c/content
 # https://link.springer.com/chapter/10.1007/BFb0040810
 
@@ -58,10 +63,18 @@ def createParticle():
 toolbox.register("particleCreator", createParticle)
 toolbox.register("populationCreator", tools.initRepeat, list, toolbox.particleCreator)
 
-def updateParticle(particle, global_best):
-    # create random factors:
-    # localUpdateFactor = np.random.uniform(0, C1, particle.size)
-    # globalUpdateFactor = np.random.uniform(0, C2, particle.size)
+
+
+def get_inertia(generation, total_generations):
+    if not USE_LINEAR_INERTIA:
+        return W_FIXED
+    if total_generations <= 1:
+        return W_MAX
+    fraction = generation / (total_generations - 1)
+    return W_MAX - (W_MAX - W_MIN) * fraction
+
+
+def updateParticle(particle, global_best, inertia_weight):
     r1 = np.random.random(particle.size)
     r2 = np.random.random(particle.size)
 
@@ -71,7 +84,7 @@ def updateParticle(particle, global_best):
 
     # calculate updated speed (inertia + cognitive + social)
     particle.speed = (
-        W * particle.speed
+        inertia_weight * particle.speed
         + C1 * r1 * (particle.best - particle)  # Cognitive (local)
         + C2 * r2 * (global_best - particle)  # Social (global)
     )
@@ -247,27 +260,28 @@ def save_run_summaries(run_histories, output_dir):
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "run_index", "seed",
+            "run_index", "seed", "inertia_scheme",
             "baseline_objective", "final_best",
             "improvement_percent", "best_timings",
         ])
+scheme = "linear_decreasing" if USE_LINEAR_INERTIA else f"fixed_W={W_FIXED}"
         for run in run_histories:
             baseline = float(run["baseline_objective"])
             final_best = float(run["final_best"])
             improvement = ((baseline - final_best) / baseline) * 100.0 if baseline else 0.0
             best_timings = "[" + ", ".join(f"{v:.2f}" for v in run["best_solution"]) + "]"
             writer.writerow([
-                run["run_index"], run["seed"],
+                run["run_index"], run["seed"], scheme,
                 f"{baseline:.6f}", f"{final_best:.6f}",
                 f"{improvement:.4f}", best_timings,
             ])
     return csv_path
 
 if __name__ == "__main__":
-    seeds = load_or_create_seeds('seeds.json', num_runs=30)
+    seeds = load_or_create_seeds('seeds.json', num_runs=NUM_RUNS)
     run_histories = []
 
-    for i, seed_val in enumerate(seeds):
+    for run_idx, seed_val in enumerate(seeds):
         best = None
 
         random.seed(seed_val)
@@ -278,7 +292,7 @@ if __name__ == "__main__":
 
         traffic_stream = generate_traffic_stream(SIM_HORIZON)
 
-        print(f"\n--- RUN {i+1} (Seed {seed_val}) ---")
+        print(f"\n--- RUN {run_idx + 1} (Seed {seed_val}) ---")
 
         best_curve = []
         avg_curve = []
@@ -308,14 +322,14 @@ if __name__ == "__main__":
             best_curve.append(best_so_far)
             avg_curve.append(generation_avg)
 
-            # update each particle's speed and position:
+            current_w = get_inertia(generation, NUM_GENERATIONS)
             for particle in population:
-                toolbox.update(particle, best)
+                toolbox.update(particle, best, current_w)
 
             if generation % 10 == 0 or generation == NUM_GENERATIONS - 1:
                 print(
-                    f"Gen {generation:02d} | Best so far: {best_so_far:.2f} | "
-                    f"Generation avg: {generation_avg:.2f}"
+                    f"Gen {generation:02d} | W={current_w:.3f} | "
+                    f"Best so far: {best_so_far:.2f} | Generation avg: {generation_avg:.2f}"
                 )
     
         baseline_timings = np.array([60.0, 60.0] * NUM_INTERSECTIONS, dtype=float)
@@ -327,10 +341,12 @@ if __name__ == "__main__":
         )
 
         baseline_objective = float(baseline_metrics['objective'])
-        improvement_curve = [((baseline_objective - value) / baseline_objective) * 100.0 for value in best_curve]
-        run_histories.append(
-            {
-                "run_index": i + 1,
+        improvement_curve = [
+((baseline_objective - v) / baseline_objective) * 100.0 if baseline_objective else 0.0
+for v in best_curve
+]
+        run_histories.append({
+                "run_index": run_idx + 1,
                 "seed": seed_val,
                 "best_curve": best_curve,
                 "avg_curve": avg_curve,
@@ -338,16 +354,14 @@ if __name__ == "__main__":
                 "baseline_objective": baseline_objective,
                 "final_best": float(best.fitness.values[0]),
                 "best_solution": np.array(best, dtype=float).tolist(),
-            }
-        )
+            })
 
         # print info for best solution found:
         print("-- Best Particle = ", np.round(best, 2))
         print("-- Best Fitness  = ", best.fitness.values[0])
 
-    progress_plot_path, comparison_plot_path = plot_optimization_results(run_histories, OUTPUT_DIR)
-    csv_summary_path = save_run_summaries(run_histories, OUTPUT_DIR)
-
-    print(f"\nSaved plot: {progress_plot_path}")
-    print(f"Saved plot: {comparison_plot_path}")
-    print(f"Saved summary CSV: {csv_summary_path}")
+    progress_path, comparison_path = plot_optimization_results(run_histories, OUTPUT_DIR)
+    csv_path = save_run_summaries(run_histories, OUTPUT_DIR)
+    print(f"\nSaved plot: {progress_path}")
+    print(f"Saved plot: {comparison_path}")
+    print(f"Saved summary CSV: {csv_path}")
