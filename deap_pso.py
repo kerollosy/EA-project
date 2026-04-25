@@ -1,19 +1,7 @@
-"""
-1. نعمل الرسومات 
-2. نشوف ليه ال EW بيبقي دايما ب10 ونصلح الموضوع ده
-3. نسيف الداتا
-4. نظبط ال W ونخليها تقل
-5. نعمل مقارنة بين ال PSO و ال GA
-6. نعمل الGUI
-7. نعمل ال report
-"""
-
-
 import csv
 import json
 import os
 import random
-from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,7 +23,7 @@ CONGESTION_WEIGHT = 120
 POPULATION_SIZE = 30
 SIM_HORIZON = 150
 NUM_GENERATIONS = 50
-OUTPUT_DIR = "outputs"
+OUTPUT_DIR = "pso_outputs"
 
 # Constrained Optimisation
 # Constraint: 10 <= Green Signal Duration <= 120
@@ -52,8 +40,15 @@ OUTPUT_DIR = "outputs"
 
 toolbox = base.Toolbox()
 
-creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-creator.create("Particle", np.ndarray, fitness=creator.FitnessMin, speed=None, best=None, smin=-V_MAX, smax=V_MAX)
+if not hasattr(creator, "FitnessMin"):
+    creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
+if not hasattr(creator, "Particle"):
+    creator.create(
+        "Particle", np.ndarray,
+        fitness=creator.FitnessMin, speed=None, best=None,
+        smin=-V_MAX, smax=V_MAX,
+    )
+
 
 def createParticle():
     particle = creator.Particle(np.random.uniform(MIN_GREEN, MAX_GREEN, NUM_INTERSECTIONS * 2))
@@ -246,6 +241,28 @@ def plot_optimization_results(run_histories, output_dir):
 
     return progress_plot_path, comparison_plot_path
 
+def save_run_summaries(run_histories, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    csv_path = os.path.join(output_dir, "pso_run_summary.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "run_index", "seed",
+            "baseline_objective", "final_best",
+            "improvement_percent", "best_timings",
+        ])
+        for run in run_histories:
+            baseline = float(run["baseline_objective"])
+            final_best = float(run["final_best"])
+            improvement = ((baseline - final_best) / baseline) * 100.0 if baseline else 0.0
+            best_timings = "[" + ", ".join(f"{v:.2f}" for v in run["best_solution"]) + "]"
+            writer.writerow([
+                run["run_index"], run["seed"],
+                f"{baseline:.6f}", f"{final_best:.6f}",
+                f"{improvement:.4f}", best_timings,
+            ])
+    return csv_path
+
 if __name__ == "__main__":
     seeds = load_or_create_seeds('seeds.json', num_runs=30)
     run_histories = []
@@ -320,6 +337,7 @@ if __name__ == "__main__":
                 "improvement_curve": improvement_curve,
                 "baseline_objective": baseline_objective,
                 "final_best": float(best.fitness.values[0]),
+                "best_solution": np.array(best, dtype=float).tolist(),
             }
         )
 
@@ -328,5 +346,8 @@ if __name__ == "__main__":
         print("-- Best Fitness  = ", best.fitness.values[0])
 
     progress_plot_path, comparison_plot_path = plot_optimization_results(run_histories, OUTPUT_DIR)
+    csv_summary_path = save_run_summaries(run_histories, OUTPUT_DIR)
+
     print(f"\nSaved plot: {progress_plot_path}")
     print(f"Saved plot: {comparison_plot_path}")
+    print(f"Saved summary CSV: {csv_summary_path}")
