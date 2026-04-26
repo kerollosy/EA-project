@@ -9,7 +9,6 @@ import seaborn as sns
 from deap import base, creator, tools
 
 # Hyperparameters
-USE_LINEAR_INERTIA = True
 W_MAX = 0.9
 W_MIN = 0.4
 W_FIXED = 0.7
@@ -65,9 +64,9 @@ toolbox.register("populationCreator", tools.initRepeat, list, toolbox.particleCr
 
 
 
-def get_inertia(generation, total_generations):
-    if not USE_LINEAR_INERTIA:
-        return W_FIXED
+def get_inertia(generation, total_generations, use_linear_inertia, fixed_w):
+    if not use_linear_inertia:
+        return fixed_w
     if total_generations <= 1:
         return W_MAX
     fraction = generation / (total_generations - 1)
@@ -180,7 +179,7 @@ def load_or_create_seeds(filename='seeds.json', num_runs=30):
         return seeds
 
 
-def plot_optimization_results(run_histories, output_dir):
+def plot_optimization_results(run_histories, output_dir, label="PSO"):
     os.makedirs(output_dir, exist_ok=True)
     sns.set_theme(style="whitegrid", context="talk")
 
@@ -205,7 +204,7 @@ def plot_optimization_results(run_histories, output_dir):
     axes[0].fill_between(generations, mean_best - std_best, mean_best + std_best, color="#1f77b4", alpha=0.2)
     axes[0].plot(generations, mean_avg, label="Mean population objective", color="#2ca02c", linewidth=2.0, alpha=0.9)
     axes[0].axhline(baseline_mean, linestyle="--", color="#d62728", linewidth=2.0, label="Mean baseline objective")
-    axes[0].set_title("PSO Objective Over Generations")
+    axes[0].set_title(f"{label} Objective Over Generations")
     axes[0].set_xlabel("Generation")
     axes[0].set_ylabel("Objective (lower is better)")
     axes[0].legend()
@@ -234,7 +233,7 @@ def plot_optimization_results(run_histories, output_dir):
     width = 0.42
     ax2.bar(run_indices - width / 2, baseline_values, width=width, label="Baseline objective", color="#d62728", alpha=0.85)
     ax2.bar(run_indices + width / 2, final_best_values, width=width, label="PSO final best objective", color="#1f77b4", alpha=0.9)
-    ax2.set_title("Per-Run Baseline vs PSO Final Best")
+    ax2.set_title(f"Per-Run Baseline vs {label} Final Best")
     ax2.set_xlabel("Run index")
     ax2.set_ylabel("Objective (lower is better)")
     ax2.legend()
@@ -246,107 +245,137 @@ def plot_optimization_results(run_histories, output_dir):
     
     return progress_plot_path, comparison_plot_path
 
-def save_run_summaries(run_histories, output_dir):
+def save_run_summaries(run_histories, output_dir, config):
     os.makedirs(output_dir, exist_ok=True)
     csv_path = os.path.join(output_dir, "pso_run_summary.csv")
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "run_index", "seed", "inertia_scheme",
+            "run_index", "seed", "algorithm", "config_id", "inertia_scheme",
             "baseline_objective", "final_best",
             "improvement_percent", "best_timings",
         ])
-        scheme = "linear_decreasing" if USE_LINEAR_INERTIA else f"fixed_W={W_FIXED}"
+        scheme = "linear_decreasing" if config["use_linear_inertia"] else f'fixed_W={config["fixed_w"]}'
         for run in run_histories:
             baseline = float(run["baseline_objective"])
             final_best = float(run["final_best"])
             improvement = ((baseline - final_best) / baseline) * 100.0 if baseline else 0.0
             best_timings = "[" + ", ".join(f"{v:.2f}" for v in run["best_solution"]) + "]"
             writer.writerow([
-                run["run_index"], run["seed"], scheme,
+                run["run_index"], run["seed"], "PSO", config["name"], scheme,
                 f"{baseline:.6f}", f"{final_best:.6f}",
                 f"{improvement:.4f}", best_timings,
             ])
     return csv_path
 
-if __name__ == "__main__":
-    seeds = load_or_create_seeds('seeds.json', num_runs=NUM_RUNS)
+
+def run_single_pso(seed_val, config):
+    random.seed(seed_val)
+    np.random.seed(seed_val)
+
+    population = toolbox.populationCreator(n=POPULATION_SIZE)
+    traffic_stream = generate_traffic_stream(SIM_HORIZON)
+
+    best = None
+    print(f"\n--- RUN (Seed {seed_val}) [{config['name']}] ---")
+
+    best_curve = []
+    avg_curve = []
+    best_so_far = float("inf")
+
+    for generation in range(NUM_GENERATIONS):
+        for particle in population:
+            particle.fitness.values = toolbox.evaluate(particle, traffic_stream)
+            if particle.best is None or particle.best.size == 0 or particle.best.fitness < particle.fitness:
+                particle.best = creator.Particle(particle)
+                particle.best.fitness.values = particle.fitness.values
+            if best is None or best.size == 0 or best.fitness < particle.fitness:
+                best = creator.Particle(particle)
+                best.fitness.values = particle.fitness.values
+
+        generation_fitness = np.array([particle.fitness.values[0] for particle in population], dtype=float)
+        generation_min = float(np.min(generation_fitness))
+        generation_avg = float(np.mean(generation_fitness))
+        best_so_far = min(best_so_far, generation_min)
+
+        best_curve.append(best_so_far)
+        avg_curve.append(generation_avg)
+
+        current_w = get_inertia(generation, NUM_GENERATIONS, config["use_linear_inertia"], config["fixed_w"])
+        for particle in population:
+            toolbox.update(particle, best, current_w)
+
+        if generation % 10 == 0 or generation == NUM_GENERATIONS - 1:
+            print(
+                f"Gen {generation:02d} | W={current_w:.3f} | "
+                f"Best so far: {best_so_far:.2f} | Generation avg: {generation_avg:.2f}"
+            )
+
+    baseline_timings = np.array([60.0, 60.0] * NUM_INTERSECTIONS, dtype=float)
+    baseline_metrics = simulate_traffic(baseline_timings, traffic_stream)
+    print(
+        f"Baseline -> Wait: {baseline_metrics['total_wait']:.2f}, "
+        f"Avg Queue: {baseline_metrics['avg_queue']:.2f}, "
+        f"Objective: {baseline_metrics['objective']:.2f}"
+    )
+
+    baseline_objective = float(baseline_metrics['objective'])
+    improvement_curve = [
+        ((baseline_objective - v) / baseline_objective) * 100.0 if baseline_objective else 0.0
+        for v in best_curve
+    ]
+
+    return {
+        "run_index": 0,
+        "seed": seed_val,
+        "best_curve": best_curve,
+        "avg_curve": avg_curve,
+        "improvement_curve": improvement_curve,
+        "baseline_objective": baseline_objective,
+        "final_best": float(best.fitness.values[0]),
+        "best_solution": np.array(best, dtype=float).tolist(),
+    }
+
+
+EXPERIMENTS = [
+    {
+        "name": "linear_inertia",
+        "use_linear_inertia": True,
+        "fixed_w": W_FIXED,
+    },
+    {
+        "name": "fixed_inertia",
+        "use_linear_inertia": False,
+        "fixed_w": W_FIXED,
+    },
+]
+
+
+def run_experiment(seeds, config):
+    print(f"\n========== EXPERIMENT: {config['name']} ==========")
     run_histories = []
 
     for run_idx, seed_val in enumerate(seeds):
-        best = None
+        result = run_single_pso(seed_val, config)
+        result["run_index"] = run_idx + 1
+        run_histories.append(result)
 
-        random.seed(seed_val)
-        np.random.seed(seed_val)
+    setting_dir = os.path.join(OUTPUT_DIR, config["name"])
+    progress_path, comparison_path = plot_optimization_results(run_histories, setting_dir, label=f"PSO ({config['name']})")
+    csv_path = save_run_summaries(run_histories, setting_dir, config)
 
-        # call populationCreator with n=30 to create a population of 30 particles:
-        population = toolbox.populationCreator(n=POPULATION_SIZE)
-        
-        traffic_stream = generate_traffic_stream(SIM_HORIZON)
+    final_bests = [run["final_best"] for run in run_histories]
+    print(
+        f"  -> Mean final best: {np.mean(final_bests):.2f} "
+        f"(std {np.std(final_bests):.2f}, min {np.min(final_bests):.2f})"
+    )
+    print(f"  -> Saved plot: {progress_path}")
+    print(f"  -> Saved plot: {comparison_path}")
+    print(f"  -> Saved summary CSV: {csv_path}")
 
-        print(f"\n--- RUN {run_idx + 1} (Seed {seed_val}) ---")
 
-        best_curve = []
-        avg_curve = []
-        best_so_far = float('inf')
-
-        for generation in range(NUM_GENERATIONS):
-            for particle in population:
-                particle.fitness.values = toolbox.evaluate(particle, traffic_stream)
-                if particle.best is None or particle.best.size == 0 or particle.best.fitness < particle.fitness:
-                    particle.best = creator.Particle(particle)
-                    particle.best.fitness.values = particle.fitness.values
-                if best is None or best.size == 0 or best.fitness < particle.fitness:
-                    best = creator.Particle(particle)
-                    best.fitness.values = particle.fitness.values
-
-            generation_fitness = np.array([particle.fitness.values[0] for particle in population], dtype=float)
-            generation_min = float(np.min(generation_fitness))
-            generation_avg = float(np.mean(generation_fitness))
-            best_so_far = min(best_so_far, generation_min)
-
-            best_curve.append(best_so_far)
-            avg_curve.append(generation_avg)
-
-            current_w = get_inertia(generation, NUM_GENERATIONS)
-            for particle in population:
-                toolbox.update(particle, best, current_w)
-
-            if generation % 10 == 0 or generation == NUM_GENERATIONS - 1:
-                print(
-                    f"Gen {generation:02d} | W={current_w:.3f} | "
-                    f"Best so far: {best_so_far:.2f} | Generation avg: {generation_avg:.2f}"
-                )
-
-        baseline_timings = np.array([60.0, 60.0] * NUM_INTERSECTIONS, dtype=float)
-        baseline_metrics = simulate_traffic(baseline_timings, traffic_stream)
-        print(
-            f"Baseline -> Wait: {baseline_metrics['total_wait']:.2f}, "
-            f"Avg Queue: {baseline_metrics['avg_queue']:.2f}, "
-            f"Objective: {baseline_metrics['objective']:.2f}"
-        )
-
-        baseline_objective = float(baseline_metrics['objective'])
-        improvement_curve = [
-            ((baseline_objective - v) / baseline_objective) * 100.0 if baseline_objective else 0.0
-            for v in best_curve
-        ]
-        run_histories.append({
-            "run_index": run_idx + 1,
-            "seed": seed_val,
-            "best_curve": best_curve,
-            "avg_curve": avg_curve,
-            "improvement_curve": improvement_curve,
-            "baseline_objective": baseline_objective,
-            "final_best": float(best.fitness.values[0]),
-            "best_solution": np.array(best, dtype=float).tolist(),
-        })
-
-        print("-- Best Particle = ", np.round(best, 2))
-        print("-- Best Fitness  = ", best.fitness.values[0])
-
-    progress_path, comparison_path = plot_optimization_results(run_histories, OUTPUT_DIR)
-    csv_path = save_run_summaries(run_histories, OUTPUT_DIR)
-    print(f"\nSaved plot: {progress_path}")
-    print(f"Saved plot: {comparison_path}")
-    print(f"Saved summary CSV: {csv_path}")
+if __name__ == "__main__":
+    seeds = load_or_create_seeds('seeds.json', num_runs=NUM_RUNS)
+    for config in EXPERIMENTS:
+        run_experiment(seeds, config)
+    print(f"\nAll experiments complete. See {OUTPUT_DIR}")
