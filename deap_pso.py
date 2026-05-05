@@ -15,6 +15,7 @@ W_FIXED = 0.7
 
 C1 = 2.0
 C2 = 2.0
+MUTATION_RATE = 0.10
 
 NUM_INTERSECTIONS = 2
 MIN_GREEN = 10
@@ -85,6 +86,11 @@ def updateParticle(particle, global_best, inertia_weight):
 
     particle.speed = np.clip(particle.speed, -V_MAX, V_MAX)
     particle[:] = particle + particle.speed
+
+    if random.random() < MUTATION_RATE:
+        random_index = random.randint(0, len(particle) - 1)
+        particle[random_index] = random.uniform(MIN_GREEN, MAX_GREEN)
+    
     repairParticle(particle)
 
 def repairParticle(particle):
