@@ -173,7 +173,7 @@ def run_single_pso(seed_val, run_idx):
     wait_curve = []
     queue_curve = []
 
-    print(f"\n── Run {run_idx} (seed {seed_val}) | linear_inertia ──")
+    print(f"\-- Run {run_idx} (seed {seed_val}) | linear_inertia --")
 
     for generation in range(NUM_GENERATIONS):
         for particle in population:
