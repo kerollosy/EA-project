@@ -52,10 +52,10 @@ toolbox.register("particleCreator", createParticle)
 toolbox.register("populationCreator", tools.initRepeat, list, toolbox.particleCreator)
 
 stats = tools.Statistics(lambda p: p.fitness.values[0])
-stats.register("min",  np.min)
-stats.register("avg",  np.mean)
-stats.register("std",  np.std)
-stats.register("max",  np.max)
+stats.register("min", np.min)
+stats.register("avg", np.mean)
+stats.register("std", np.std)
+stats.register("max", np.max)
 
 
 def get_inertia(generation, total_generations):
@@ -149,15 +149,10 @@ def generate_traffic_stream(sim_time):
 
 
 def load_or_create_seeds(filename="seeds.json", num_runs=30):
-    try:
-        with open(filename, "r") as f:
-            return json.load(f)["seeds"]
-    except FileNotFoundError:
-        seeds = [random.randint(1, 10000) for _ in range(num_runs)]
-        with open(filename, "w") as f:
-            json.dump({"seeds": seeds}, f, indent=2)
-        print(f"Generated and saved new {filename}")
-        return seeds
+    random.seed(1)
+
+    seeds = [random.randint(1, 10000) for _ in range(num_runs)]
+    return seeds
 
 
 def run_single_pso(seed_val, run_idx):
@@ -171,9 +166,12 @@ def run_single_pso(seed_val, run_idx):
     logbook.header = ["gen", "w", "min", "avg", "std", "max"]
 
     best = None
+    best_metrics = None
     best_so_far = float("inf")
     best_curve = []
     avg_curve = []
+    wait_curve = []
+    queue_curve = []
 
     print(f"\n── Run {run_idx} (seed {seed_val}) | linear_inertia ──")
 
@@ -186,11 +184,14 @@ def run_single_pso(seed_val, run_idx):
             if best is None or best.size == 0 or best.fitness < particle.fitness:
                 best = creator.Particle(particle)
                 best.fitness.values = particle.fitness.values
+                best_metrics = simulate_traffic(particle, traffic_stream)
 
         record = stats.compile(population)
         best_so_far = min(best_so_far, record["min"])
         best_curve.append(best_so_far)
         avg_curve.append(record["avg"])
+        wait_curve.append(best_metrics["total_wait"])
+        queue_curve.append(best_metrics["avg_queue"])
 
         current_w = get_inertia(generation, NUM_GENERATIONS)
         logbook.record(gen=generation, w=f"{current_w:.3f}", **record)
@@ -219,8 +220,12 @@ def run_single_pso(seed_val, run_idx):
         "best_curve": best_curve,
         "avg_curve": avg_curve,
         "improvement_curve": improvement_curve,
+        "wait_curve": wait_curve,
+        "queue_curve": queue_curve,
         "baseline_objective": baseline_objective,
         "final_best": float(best.fitness.values[0]),
+        "final_wait": float(best_metrics["total_wait"]),
+        "final_avg_queue": float(best_metrics["avg_queue"]),
         "best_solution": np.array(best, dtype=float).tolist(),
     }
 
@@ -272,8 +277,8 @@ def plot_results(run_histories):
     width = 0.42
 
     fig2, ax2 = plt.subplots(figsize=(14, 7))
-    ax2.bar(run_indices - width / 2, baseline_vals,  width=width, label="Baseline",        color="#d62728", alpha=0.85)
-    ax2.bar(run_indices + width / 2, final_bests,    width=width, label="PSO final best",  color="#1f77b4", alpha=0.90)
+    ax2.bar(run_indices - width / 2, baseline_vals, width=width, label="Baseline",       color="#d62728", alpha=0.85)
+    ax2.bar(run_indices + width / 2, final_bests,   width=width, label="PSO final best", color="#1f77b4", alpha=0.90)
     ax2.set_title("Per-Run Baseline vs PSO Final Best (Linear Inertia)")
     ax2.set_xlabel("Run index")
     ax2.set_ylabel("Objective (lower is better)")
@@ -283,7 +288,55 @@ def plot_results(run_histories):
     fig2.savefig(p2, dpi=180, bbox_inches="tight")
     plt.close(fig2)
 
-    return p1, p2
+    wait_curves  = np.array([r["wait_curve"]  for r in run_histories], dtype=float)
+    queue_curves = np.array([r["queue_curve"] for r in run_histories], dtype=float)
+
+    mean_wait  = wait_curves.mean(axis=0);  std_wait  = wait_curves.std(axis=0)
+    mean_queue = queue_curves.mean(axis=0); std_queue = queue_curves.std(axis=0)
+
+    fig3, axes3 = plt.subplots(1, 2, figsize=(16, 7))
+
+    axes3[0].plot(generations, mean_wait, color="#1f77b4", linewidth=2.5, label="Mean total wait")
+    axes3[0].fill_between(generations, mean_wait - std_wait, mean_wait + std_wait, color="#1f77b4", alpha=0.2)
+    axes3[0].set_title("Total Waiting Time Over Generations (Linear Inertia)")
+    axes3[0].set_xlabel("Generation")
+    axes3[0].set_ylabel("Total wait (vehicle-seconds)")
+    axes3[0].legend()
+
+    axes3[1].plot(generations, mean_queue, color="#2ca02c", linewidth=2.5, label="Mean avg queue")
+    axes3[1].fill_between(generations, mean_queue - std_queue, mean_queue + std_queue, color="#2ca02c", alpha=0.2)
+    axes3[1].set_title("Average Queue Length Over Generations (Linear Inertia)")
+    axes3[1].set_xlabel("Generation")
+    axes3[1].set_ylabel("Avg queue length (vehicles)")
+    axes3[1].legend()
+
+    fig3.tight_layout()
+    p3 = os.path.join(OUTPUT_DIR, "metrics_over_generations.png")
+    fig3.savefig(p3, dpi=180, bbox_inches="tight")
+    plt.close(fig3)
+
+    return p1, p2, p3
+
+
+def plot_per_run_avg(run_histories):
+    plots_dir = os.path.join(OUTPUT_DIR, "pso_plots")
+    os.makedirs(plots_dir, exist_ok=True)
+    sns.set_theme(style="whitegrid", context="talk")
+
+    generations = np.arange(NUM_GENERATIONS)
+
+    for run in run_histories:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(generations, run["avg_curve"], color="#1f77b4", linewidth=2.0)
+        ax.set_title(f"Run {run['run_index']} – Population Avg Objective per Generation (Linear Inertia)")
+        ax.set_xlabel("Generation")
+        ax.set_ylabel("Avg objective (lower is better)")
+        fig.tight_layout()
+        path = os.path.join(plots_dir, f"run_{run['run_index']:02d}_avg.png")
+        fig.savefig(path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+    print(f"  Per-run plots saved to: {plots_dir}")
 
 
 def save_summaries(run_histories):
@@ -293,7 +346,8 @@ def save_summaries(run_histories):
         writer = csv.writer(f)
         writer.writerow([
             "run_index", "seed", "algorithm", "config_id", "inertia_scheme",
-            "baseline_objective", "final_best", "improvement_percent", "best_timings",
+            "baseline_objective", "final_best", "improvement_percent",
+            "final_wait", "final_avg_queue", "best_timings",
         ])
         for run in run_histories:
             baseline   = float(run["baseline_objective"])
@@ -304,7 +358,9 @@ def save_summaries(run_histories):
                 run["run_index"], run["seed"], "PSO", "linear_inertia",
                 "linear_decreasing",
                 f"{baseline:.6f}", f"{final_best:.6f}",
-                f"{improvement:.4f}", timings,
+                f"{improvement:.4f}",
+                f"{run['final_wait']:.2f}", f"{run['final_avg_queue']:.4f}",
+                timings,
             ])
     return csv_path
 
@@ -317,8 +373,9 @@ if __name__ == "__main__":
         result = run_single_pso(seed_val, run_idx)
         run_histories.append(result)
 
-    p1, p2   = plot_results(run_histories)
-    csv_path = save_summaries(run_histories)
+    p1, p2, p3 = plot_results(run_histories)
+    csv_path   = save_summaries(run_histories)
+    plot_per_run_avg(run_histories)
 
     final_bests = [r["final_best"] for r in run_histories]
     print(f"\n{'='*60}")
@@ -327,5 +384,6 @@ if __name__ == "__main__":
           f"(std {np.std(final_bests):.2f}, min {np.min(final_bests):.2f})")
     print(f"  Plot  : {p1}")
     print(f"  Plot  : {p2}")
+    print(f"  Plot  : {p3}")
     print(f"  CSV   : {csv_path}")
     print(f"{'='*60}")
